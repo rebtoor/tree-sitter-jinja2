@@ -1,0 +1,61 @@
+{# Basic configuration template for nginx #}
+server {
+listen {{ nginx_port | default(80) }};
+server_name {{ server_name }};
+{% if ssl_enabled %}
+listen 443 ssl;
+ssl_certificate {{ ssl_cert_path }};
+ssl_certificate_key {{ ssl_key_path }};
+{% endif %}
+
+{# Configure root directory #}
+root {{ web_root | default('/var/www/html') }};
+index index.html;
+
+{% for location in locations %}
+location {{ location.path }} {
+    {% if location.proxy_pass is defined %}
+    proxy_pass {{ location.proxy_pass }};
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    {% else %}
+    try_files $uri $uri/ =404;
+    {% endif %}
+
+    {% if location.basic_auth | default(false) %}
+    auth_basic "Restricted Content";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+    {% endif %}
+}
+{% endfor %}
+
+{% set cache_settings = {
+    'enabled': true,
+    'duration': '1h',
+    'types': ['image/jpeg', 'image/png']
+} %}
+
+{% if cache_settings.enabled %}
+location ~* \.(jpg|jpeg|png)$ {
+    expires {{ cache_settings.duration }};
+    add_header Cache-Control "public, no-transform";
+}
+{% endif %}
+
+{% for upstream in upstreams | default([]) %}
+location {{ upstream.path }} {
+    {{ upstream.config | default('try_files $uri $uri/ =404;') }}
+    {% if upstream.rate_limit is defined %}
+    limit_req zone={{ upstream.rate_limit.zone }} 
+             burst={{ upstream.rate_limit.burst | default(20) }};
+    {% endif %}
+}
+{% endfor %}
+
+error_page 404 /404.html;
+error_page 500 502 503 504 /50x.html;
+
+{# Access logging configuration #}
+access_log {{ nginx_access_log | default('/var/log/nginx/access.log') }} combined;
+error_log {{ nginx_error_log | default('/var/log/nginx/error.log') }};
+}
