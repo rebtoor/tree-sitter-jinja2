@@ -8,163 +8,130 @@
 // @ts-check
 
 module.exports = grammar({
-  name: "jinja2",
+  name: 'jinja2',
 
-  // Whitespace and comments are extras - parsed but not in the tree
-  extras: ($) => [$.comment, /\s/],
-
-  // External scanner tokens for Jinja2 delimiters
-  externals: ($) => [
-    $._start_comment, // {#
-    $._end_comment, // #}
-    $._start_variable, // {{
-    $._end_variable, // }}
-    $._start_statement, // {%
-    $._end_statement, // %}
-  ],
-
-  // Operator precedence rules
-  precedences: ($) => [
-    ["unary", "binary"],
-    ["member", "call"],
-    ["filter", "comparison"],
-  ],
+  word: $ => $.identifier,
 
   rules: {
-    // Root rule - a template is a sequence of text, comments, and blocks
-    template: ($) =>
-      repeat(choice($.text, $.comment, $.statement_block, $.expression_block)),
+    source_file: $ => repeat($._node),
 
-    // Raw text between Jinja2 expressions
-    text: ($) => token(/[^{]+/),
+    // Text handling
+    _text: $ => choice(
+      /[^{#%}]+/,
+      $._not
+    ),
+    
+    _not: $ => choice(
+      /[{]([^{#%]|)/,
+      /([^}#%]|)[}]/,
+      /([^{]|)#([^}]|)/,
+      /([^{]|)%([^}]|)/
+    ),
 
-    // Comments in {# #} delimiters
-    comment: ($) => seq($._start_comment, /[^#}]*/, $._end_comment),
+    _node: $ => choice(
+      $.statement,
+      $.expression,
+      $.comment,
+      $._text
+    ),
 
-    // Variable expressions in {{ }} delimiters
-    expression_block: ($) =>
-      seq($._start_variable, $._expression, $._end_variable),
+    // Statement handling
+    statement: $ => seq(
+      $.statement_begin,
+      $.statement_content,
+      $.statement_end
+    ),
 
-    // Control statements in {% %} delimiters
-    statement_block: ($) =>
-      seq($._start_statement, $._statement, $._end_statement),
+    statement_begin: $ => seq(
+      '{%',
+      optional($.white_space_control)
+    ),
 
-    // All possible expressions
-    _expression: ($) =>
-      choice(
-        $._primary_expression,
-        $.unary_operation,
-        $.binary_operation,
-        $.comparison,
-        $.member_access,
-        $.filter_expression,
-        $.function_call,
-        $.list_expression,
-        $.dict_expression,
-      ),
+    statement_end: $ => seq(
+      optional($.white_space_control),
+      '%}'
+    ),
 
-    // Basic expressions that don't need further parsing
-    _primary_expression: ($) =>
-      choice($.identifier, $.string, $.number, $.boolean, $.none),
+    statement_content: $ => seq(
+      $.keyword,
+      optional($._inner_text)
+    ),
 
-    // Basic identifier - variable names, function names, etc.
-    identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
+    // Expression handling
+    expression: $ => seq(
+      $.expression_begin,
+      optional($._inner_text2),
+      $.expression_end
+    ),
 
-    // String literals
-    string: ($) =>
-      choice(
-        seq('"', optional(/[^"]*/), '"'),
-        seq("'", optional(/[^']*/), "'"),
-      ),
+    expression_begin: $ => '{{',
+    expression_end: $ => '}}',
 
-    // Numbers - integers and floats
-    number: ($) => /\d+(\.\d+)?/,
+    // Object handling
+    object: $ => seq(
+      $._object_begin,
+      optional($._inner_text2),
+      $._object_end
+    ),
 
-    // Boolean values
-    boolean: ($) => choice("true", "false"),
+    _object_begin: $ => '{',
+    _object_end: $ => '}',
 
-    // None/null values
-    none: ($) => choice("none", "None", "null"),
+    // Comment handling
+    comment: $ => seq(
+      '{#',
+      alias(/[^#]*/, $.comment_content),
+      '#}'
+    ),
 
-    // Unary operations (not, -)
-    unary_operation: ($) =>
-      prec.left("unary", seq(choice("not", "-"), $._expression)),
+    keyword: $ => choice(
+      'if', 'else', 'elif', 'endif',
+      'for', 'endfor', 'in',
+      'while', 'endwhile',
+      'block', 'endblock',
+      'extends',
+      'include',
+      'import', 'from',
+      'macro', 'endmacro',
+      'call', 'endcall',
+      'set', 'endset',
+      'filter', 'endfilter',
+      'raw', 'endraw',
+      'with', 'endwith',
+      'autoescape', 'endautoescape',
+      'trans', 'endtrans',
+      'do', 'debug',
+      'pluralize'
+    ),
 
-    // Binary operations (+, -, *, /, and, or, etc.)
-    binary_operation: ($) =>
-      prec.left(
-        "binary",
-        seq(
-          $._expression,
-          choice("+", "-", "*", "/", "and", "or"),
-          $._expression,
-        ),
-      ),
+    // Whitespace handling
+    white_space_control: $ => /[-+]/,
+    _white_space: $ => /\s+/,
 
-    // Comparisons (==, !=, <, >, etc.)
-    comparison: ($) =>
-      prec.left(
-        "comparison",
-        seq(
-          $._expression,
-          choice("==", "!=", "<", ">", "<=", ">=", "in", "is"),
-          $._expression,
-        ),
-      ),
+    // Inner text rules
+    _inner_text: $ => repeat1(choice(
+      $.keyword,
+      field('identifier', $.identifier),
+      $._white_space,
+      $.operator,
+      $.string,
+      $.object
+    )),
 
-    // Member access (foo.bar)
-    member_access: ($) =>
-      prec.left("member", seq($._expression, ".", $.identifier)),
+    _inner_text2: $ => repeat1(choice(
+      field('identifier', $.identifier),
+      $._white_space,
+      $.operator,
+      $.string,
+      $.object
+    )),
 
-    // Filter expressions (foo | default('bar'))
-    filter_expression: ($) =>
-      prec.left(
-        "filter",
-        seq(
-          $._expression,
-          "|",
-          $.identifier,
-          optional(seq("(", optional($.argument_list), ")")),
-        ),
-      ),
-
-    // Function calls
-    function_call: ($) =>
-      prec.left("call", seq($.identifier, "(", optional($.argument_list), ")")),
-
-    // Function/filter arguments
-    argument_list: ($) => seq($._expression, repeat(seq(",", $._expression))),
-
-    // List expressions [1, 2, 3]
-    list_expression: ($) => seq("[", optional($.argument_list), "]"),
-
-    // Dict expressions {'foo': 'bar'}
-    dict_expression: ($) => seq("{", optional($.dict_items), "}"),
-
-    // Dictionary items
-    dict_items: ($) => seq($.dict_item, repeat(seq(",", $.dict_item))),
-
-    dict_item: ($) => seq($._expression, ":", $._expression),
-
-    // Control statements
-    _statement: ($) =>
-      choice(
-        $.if_statement,
-        $.for_statement,
-        $.set_statement,
-        $.include_statement,
-      ),
-
-    // If statement
-    if_statement: ($) => seq("if", $._expression),
-
-    // For loop
-    for_statement: ($) => seq("for", $.identifier, "in", $._expression),
-
-    // Set statement
-    set_statement: ($) => seq("set", $.identifier, "=", $._expression),
-
-    // Include statement
-    include_statement: ($) => seq("include", $._expression),
-  },
+    // Basic tokens
+    identifier: $ => /[\w][\w\d_]*/,
+    operator: $ => /[^\w_{#%}'"]+/,
+    string: $ => choice(
+      /'[^']*'/,
+      /"[^"]*"/
+    )
+  }
 });

@@ -39,3 +39,5 @@ Package.resolved linguist-generated
 # Zig bindings
 build.zig linguist-generated
 build.zig.zon linguist-generated
+
+*.scm linguist-language=scheme

@@ -28,7 +28,8 @@
   ],
   "dependencies": {
     "node-addon-api": "^8.2.1",
-    "node-gyp-build": "^4.8.2"
+    "node-gyp-build": "^4.8.2",
+    "nan": "^2.18.0"
   },
   "devDependencies": {
     "prebuildify": "^6.0.1",
@@ -48,5 +49,15 @@
     "prestart": "tree-sitter build --wasm",
     "start": "tree-sitter playground",
     "test": "node --test bindings/node/*_test.js"
-  }
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.jinja2",
+      "file-types": ["j2", "jinja2", "jinja"],
+      "path": "src",
+      "highlights": [
+        "queries/highlights.scm"
+      ]
+    }
+  ]
 }
